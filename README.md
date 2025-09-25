@@ -4,7 +4,7 @@
 Build it first
 > go build
 
-Login using `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `region` and `bucket-name`
+Login using `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `region` and `bucket-name` (need only AmazonS3ReadOnlyAccess)
 ```
 ./rclone aws-login
 ```
