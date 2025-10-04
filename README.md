@@ -6,10 +6,15 @@ Build it first
 
 Login using `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `region` and `bucket-name` (need only AmazonS3ReadOnlyAccess)
 ```
-./rclone aws-login
+../bin/rclone aws-login
 ```
 
 List the objects in the bucket
 ```
-./rclone s3-ls
+./bin/rclone s3-ls
+```
+
+Download the files with key
+```
+./bin/rclone s3-get
 ```
