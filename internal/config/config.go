@@ -14,6 +14,59 @@ type AppConfig struct {
 	Bucket          string `json:"bucket"`
 }
 
+type StorachaConfig struct {
+	PrivateKey string `json:"privateKey"`
+	ProofPath  string `json:"proofPath"`
+	SpaceDID   string `json:"spaceDid"`
+}
+
+func StorachaConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".storacha-rclone")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "storacha.json"), nil
+}
+
+func (cfg StorachaConfig) Save() error {
+	p, err := StorachaConfigPath()
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
+}
+
+func LoadStoracha() (StorachaConfig, error) {
+	var cfg StorachaConfig
+	p, err := StorachaConfigPath()
+	if err != nil {
+		return cfg, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return cfg, fmt.Errorf("read storacha config: %w (run `storacha-rclone storacha-login` first)", err)
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return cfg, err
+	}
+	if cfg.PrivateKey == "" || cfg.ProofPath == "" || cfg.SpaceDID == "" {
+		return cfg, fmt.Errorf("storacha config incomplete, run `storacha-rclone storacha-login` again")
+	}
+	return cfg, nil
+}
+
 func ConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
