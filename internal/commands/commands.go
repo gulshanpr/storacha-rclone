@@ -12,6 +12,7 @@ import (
 
 	"github.com/gulshanpr/rclone/internal/aws"
 	"github.com/gulshanpr/rclone/internal/config"
+	"github.com/gulshanpr/rclone/internal/storacha"
 	"golang.org/x/term"
 )
 
@@ -99,4 +100,77 @@ func S3Get(args []string) {
 	if err := aws.DownloadObject(ctx, ac, *key, *outFile); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func StorachaLogin() {
+	fmt.Println("== storacha-rclone Storacha login ==")
+	fmt.Println("You need: private key (base64), proof file path, and space DID")
+	fmt.Println("Generate these using: storacha key create & storacha delegation create")
+	fmt.Println()
+
+	privateKey, err := promptSecret("Private Key (base64, starts with Mg...): ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Show the DID for this private key
+	myDID, err := storacha.GetDIDFromPrivateKey(privateKey)
+	if err != nil {
+		log.Fatalf("invalid private key: %v", err)
+	}
+	fmt.Printf("\nYour DID: %s\n", myDID)
+	fmt.Println("Use this DID when creating the delegation:")
+	fmt.Printf("  storacha delegation create -c 'space/blob/add' -c 'space/index/add' -c 'upload/add' -c 'filecoin/offer' %s -o proof.ucan\n\n", myDID)
+
+	proofPath, err := prompt("Proof file path (e.g., ./proof.ucan): ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	spaceDID, err := prompt("Space DID (starts with did:key:...): ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cfg := config.StorachaConfig{
+		PrivateKey: privateKey,
+		ProofPath:  proofPath,
+		SpaceDID:   spaceDID,
+	}
+	if err := cfg.Save(); err != nil {
+		log.Fatalf("save storacha config: %v", err)
+	}
+	fmt.Println("Saved. (stored in ~/.storacha-rclone/storacha.json with 0600 perms)")
+}
+
+func StorachaPut(args []string) {
+	fs := flag.NewFlagSet("storacha-put", flag.ExitOnError)
+	filePath := fs.String("file", "", "local file path to upload (required)")
+	fs.Parse(args)
+
+	if *filePath == "" {
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	cfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := storacha.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+
+	ctx := context.Background()
+	fmt.Printf("Uploading %s to Storacha...\n", *filePath)
+
+	cid, err := client.UploadFile(ctx, *filePath)
+	if err != nil {
+		log.Fatalf("upload failed: %v", err)
+	}
+
+	fmt.Printf("Upload successful!\n")
+	fmt.Printf("CID: %s\n", cid)
+	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
 }
