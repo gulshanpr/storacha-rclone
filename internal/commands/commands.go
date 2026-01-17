@@ -69,7 +69,9 @@ func AWSLogin() {
 func S3List(args []string) {
 	fs := flag.NewFlagSet("s3-ls", flag.ExitOnError)
 	prefix := fs.String("prefix", "", "prefix to filter objects (optional)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
 	ac, err := config.Load()
 	if err != nil {
@@ -85,7 +87,9 @@ func S3Get(args []string) {
 	fs := flag.NewFlagSet("s3-get", flag.ExitOnError)
 	key := fs.String("key", "", "object key to download (required)")
 	outFile := fs.String("out", "", "local output filename (defaults to basename of key)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
 	if *key == "" {
 		fs.Usage()
@@ -145,7 +149,9 @@ func StorachaLogin() {
 func StorachaPut(args []string) {
 	fs := flag.NewFlagSet("storacha-put", flag.ExitOnError)
 	filePath := fs.String("file", "", "local file path to upload (required)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
 	if *filePath == "" {
 		fs.Usage()

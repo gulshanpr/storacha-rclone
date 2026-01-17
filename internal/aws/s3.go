@@ -53,7 +53,7 @@ func ListObjects(ctx context.Context, ac appconfig.AppConfig, prefix *string) er
 	return nil
 }
 
-func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest string) error {
+func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest string) (err error) {
 	if dest == "" {
 		parts := strings.Split(key, "/")
 		dest = parts[len(parts)-1]
@@ -72,13 +72,23 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 	if err != nil {
 		return fmt.Errorf("GetObject: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		closeErr := resp.Body.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 
 	f, err := os.Create(dest)
 	if err != nil {
 		return fmt.Errorf("create %s: %v", dest, err)
 	}
-	defer f.Close()
+	defer func() {
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 
 	n, err := io.Copy(f, resp.Body)
 	if err != nil {
