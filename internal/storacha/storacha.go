@@ -1,4 +1,4 @@
-// Storacha upload client using Guppy CLI
+// Storacha upload client using storacha CLI
 package storacha
 
 import (
@@ -16,7 +16,6 @@ import (
 	"github.com/gulshanpr/rclone/internal/config"
 )
 
-// GetDIDFromPrivateKey returns the DID for a given private key
 func GetDIDFromPrivateKey(privateKey string) (string, error) {
 	s, err := signer.Parse(privateKey)
 	if err != nil {
@@ -30,9 +29,9 @@ type Client struct {
 }
 
 func NewClient(cfg config.StorachaConfig) (*Client, error) {
-	// Verify guppy CLI is installed
-	if _, err := exec.LookPath("guppy"); err != nil {
-		return nil, fmt.Errorf("guppy CLI not found. Install with: go install github.com/storacha/guppy@latest")
+	// Verify storacha CLI is installed
+	if _, err := exec.LookPath("storacha"); err != nil {
+		return nil, fmt.Errorf("storacha CLI not found. Install with: npm install -g @storacha/cli")
 	}
 
 	return &Client{
@@ -52,48 +51,63 @@ func (c *Client) UploadFile(ctx context.Context, filePath string) (string, error
 		return "", fmt.Errorf("file not found: %w", err)
 	}
 
-	// Add source to space
-	fmt.Println("Adding source to space...")
-	addCmd := exec.CommandContext(ctx, "guppy", "upload", "source", "add", c.spaceDID, absPath)
-	addCmd.Stderr = os.Stderr
-	if err := addCmd.Run(); err != nil {
-		return "", fmt.Errorf("guppy upload source add: %w", err)
+	fmt.Println("Setting space...")
+	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.spaceDID)
+	useCmd.Stderr = os.Stderr
+	if err := useCmd.Run(); err != nil {
+		return "", fmt.Errorf("storacha space use: %w", err)
 	}
 
-	// Run upload
+	// Run upload using storacha up(js-client)
 	fmt.Println("Uploading to Storacha network...")
-	var stdout bytes.Buffer
-	uploadCmd := exec.CommandContext(ctx, "guppy", "upload", c.spaceDID)
+	var stdout, stderr bytes.Buffer
+	uploadCmd := exec.CommandContext(ctx, "storacha", "up", absPath)
 	uploadCmd.Stdout = &stdout
-	uploadCmd.Stderr = os.Stderr
+	uploadCmd.Stderr = &stderr
 	if err := uploadCmd.Run(); err != nil {
-		return "", fmt.Errorf("guppy upload: %w", err)
+		return "", fmt.Errorf("storacha up failed: %w\nstderr: %s", err, stderr.String())
 	}
 
-	// Extract CID from output
 	output := stdout.String()
 	cid := extractCID(output)
+
 	if cid == "" {
-		// Try to get from the last line
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		if len(lines) > 0 {
-			cid = strings.TrimSpace(lines[len(lines)-1])
-		}
+		cid = extractCID(stderr.String())
 	}
 
 	if cid == "" {
-		return "", fmt.Errorf("could not extract CID from output: %s", output)
+		return "", fmt.Errorf("could not extract CID from output:\nstdout: %s\nstderr: %s", output, stderr.String())
 	}
 
 	return cid, nil
 }
 
 func extractCID(output string) string {
-	// Look for bafy... CID pattern
-	re := regexp.MustCompile(`(bafy[a-z0-9]{50,})`)
+	re := regexp.MustCompile(`(bafy[a-zA-Z0-9]{50,})`)
 	matches := re.FindStringSubmatch(output)
 	if len(matches) > 1 {
 		return matches[1]
 	}
+
+	re2 := regexp.MustCompile(`(bafk[a-zA-Z0-9]{50,})`)
+	matches2 := re2.FindStringSubmatch(output)
+	if len(matches2) > 1 {
+		return matches2[1]
+	}
+
+	re3 := regexp.MustCompile(`ipfs/(bafy[a-zA-Z0-9]+|bafk[a-zA-Z0-9]+)`)
+	matches3 := re3.FindStringSubmatch(output)
+	if len(matches3) > 1 {
+		return matches3[1]
+	}
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "bafy") || strings.HasPrefix(line, "bafk") {
+			return line
+		}
+	}
+
 	return ""
 }
