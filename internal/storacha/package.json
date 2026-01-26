@@ -1,0 +1,10 @@
+{
+  "name": "storacha-worker",
+  "version": "1.0.0",
+  "description": "Node.js worker for Storacha CLI uploads",
+  "main": "worker.js",
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
