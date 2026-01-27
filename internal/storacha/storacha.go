@@ -1,15 +1,18 @@
-// Storacha upload client using storacha CLI
+// Storacha upload client using Node.js worker pool
 package storacha
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/storacha/go-ucanto/principal/ed25519/signer"
 
@@ -24,18 +27,60 @@ func GetDIDFromPrivateKey(privateKey string) (string, error) {
 	return s.DID().String(), nil
 }
 
-type Client struct {
+type workerRequest struct {
+	Action   string `json:"action"`
+	SpaceDID string `json:"spaceDID,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+type workerResponse struct {
+	Success bool   `json:"success"`
+	CID     string `json:"cid,omitempty"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type Worker struct {
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	stdout   *bufio.Reader
+	mu       sync.Mutex
+	alive    bool
 	spaceDID string
 }
 
+type WorkerPool struct {
+	workers   []*Worker
+	available chan *Worker
+	size      int
+	spaceDID  string
+	mu        sync.Mutex
+	closed    bool
+}
+
+type Client struct {
+	pool *WorkerPool
+}
+
 func NewClient(cfg config.StorachaConfig) (*Client, error) {
+	// Verify node is installed
+	if _, err := exec.LookPath("node"); err != nil {
+		return nil, fmt.Errorf("node not found. Install Node.js from: https://nodejs.org")
+	}
+
 	// Verify storacha CLI is installed
 	if _, err := exec.LookPath("storacha"); err != nil {
 		return nil, fmt.Errorf("storacha CLI not found. Install with: npm install -g @storacha/cli")
 	}
 
+	// Create worker pool
+	pool, err := newWorkerPool(cfg.SpaceDID, 3) // 3 workers by default
+	if err != nil {
+		return nil, fmt.Errorf("create worker pool: %w", err)
+	}
+
 	return &Client{
-		spaceDID: cfg.SpaceDID,
+		pool: pool,
 	}, nil
 }
 
