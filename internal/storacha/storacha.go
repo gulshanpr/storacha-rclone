@@ -3,7 +3,6 @@ package storacha
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,8 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strings"
+	"runtime"
 	"sync"
 	"time"
 
@@ -367,56 +365,86 @@ func (w *Worker) sendRequest(req workerRequest) (workerResponse, error) {
 		return resp, fmt.Errorf("read response: %w", err)
 	}
 
-	// Run upload using storacha up(js-client)
-	fmt.Println("Uploading to Storacha network...")
-	var stdout, stderr bytes.Buffer
-	uploadCmd := exec.CommandContext(ctx, "storacha", "up", absPath)
-	uploadCmd.Stdout = &stdout
-	uploadCmd.Stderr = &stderr
-	if err := uploadCmd.Run(); err != nil {
-		return "", fmt.Errorf("storacha up failed: %w\nstderr: %s", err, stderr.String())
+	if err := json.Unmarshal([]byte(line), &resp); err != nil {
+		return resp, fmt.Errorf("parse response: %w", err)
 	}
 
-	output := stdout.String()
-	cid := extractCID(output)
-
-	if cid == "" {
-		cid = extractCID(stderr.String())
-	}
-
-	if cid == "" {
-		return "", fmt.Errorf("could not extract CID from output:\nstdout: %s\nstderr: %s", output, stderr.String())
-	}
-
-	return cid, nil
+	return resp, nil
 }
 
-func extractCID(output string) string {
-	re := regexp.MustCompile(`(bafy[a-zA-Z0-9]{50,})`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) > 1 {
-		return matches[1]
+func (w *Worker) isAlive() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.alive
+}
+
+func (w *Worker) markDead() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.alive = false
+}
+
+func (w *Worker) restart() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Kill old process
+	if w.cmd != nil && w.cmd.Process != nil {
+		w.cmd.Process.Kill()
+	}
+	w.stdin.Close()
+
+	// Create new worker
+	newWorker, err := newWorker(w.spaceDID)
+	if err != nil {
+		return err
 	}
 
-	re2 := regexp.MustCompile(`(bafk[a-zA-Z0-9]{50,})`)
-	matches2 := re2.FindStringSubmatch(output)
-	if len(matches2) > 1 {
-		return matches2[1]
+	// Replace internals
+	w.cmd = newWorker.cmd
+	w.stdin = newWorker.stdin
+	w.stdout = newWorker.stdout
+	w.alive = true
+
+	return nil
+}
+
+func (w *Worker) shutdown() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.alive {
+		return nil
 	}
 
-	re3 := regexp.MustCompile(`ipfs/(bafy[a-zA-Z0-9]+|bafk[a-zA-Z0-9]+)`)
-	matches3 := re3.FindStringSubmatch(output)
-	if len(matches3) > 1 {
-		return matches3[1]
-	}
+	req := workerRequest{Action: "shutdown"}
+	reqJSON, _ := json.Marshal(req)
+	fmt.Fprintf(w.stdin, "%s\n", reqJSON)
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "bafy") || strings.HasPrefix(line, "bafk") {
-			return line
+	done := make(chan error, 1)
+	go func() {
+		done <- w.cmd.Wait()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		// Force kill
+		if w.cmd.Process != nil {
+			w.cmd.Process.Kill()
 		}
 	}
 
-	return ""
+	w.stdin.Close()
+	w.alive = false
+	return nil
+}
+
+func getPackageDir() string {
+	// Get the directory of the current file
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return "."
+	}
+	return filepath.Dir(filename)
 }
