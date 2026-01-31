@@ -167,6 +167,7 @@ func StorachaPut(args []string) {
 	if err != nil {
 		log.Fatalf("create storacha client: %v", err)
 	}
+	defer client.Close()
 
 	ctx := context.Background()
 	fmt.Printf("Uploading %s to Storacha...\n", *filePath)
