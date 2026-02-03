@@ -2,15 +2,23 @@
 package storacha
 
 import (
+	// "bufio"
 	"bytes"
 	"context"
 	"fmt"
+	// "io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	// "syscall"
+	// "time"
 
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/storacha/go-ucanto/principal/ed25519/signer"
 
 	"github.com/gulshanpr/rclone/internal/config"
@@ -68,6 +76,68 @@ func (c *Client) UploadFile(ctx context.Context, filePath string) (string, error
 		return "", fmt.Errorf("storacha up failed: %w\nstderr: %s", err, stderr.String())
 	}
 
+	output := stdout.String()
+	cid := extractCID(output)
+
+	if cid == "" {
+		cid = extractCID(stderr.String())
+	}
+
+	if cid == "" {
+		return "", fmt.Errorf("could not extract CID from output:\nstdout: %s\nstderr: %s", output, stderr.String())
+	}
+
+	return cid, nil
+}
+
+func (c *Client) UploadFromS3(ctx context.Context, awsCfg config.AppConfig, s3Key string) (string, error) {
+	// Set space
+	fmt.Println("Setting space...")
+	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.spaceDID)
+	useCmd.Stderr = os.Stderr
+	if err := useCmd.Run(); err != nil {
+		return "", fmt.Errorf("storacha space use: %w", err)
+	}
+	fmt.Println("✓ Space configured")
+
+	// Configure AWS
+	fmt.Println("Configuring AWS client...")
+	creds := credentials.NewStaticCredentialsProvider(awsCfg.AccessKeyID, awsCfg.SecretAccessKey, "")
+	cfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion(awsCfg.Region),
+		awsconfig.WithCredentialsProvider(creds),
+	)
+	if err != nil {
+		return "", fmt.Errorf("aws config: %w", err)
+	}
+
+	// Get S3 object - stream directly to storacha stdin
+	fmt.Println("Streaming from S3 to Storacha...")
+	s3Client := s3.NewFromConfig(cfg)
+	resp, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: awssdk.String(awsCfg.Bucket),
+		Key:    awssdk.String(s3Key),
+	})
+	if err != nil {
+		return "", fmt.Errorf("s3 get object: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Start storacha upload command with stdin
+	var stdout, stderr bytes.Buffer
+	uploadCmd := exec.CommandContext(ctx, "storacha", "up", "--no-wrap", "-")
+	uploadCmd.Stdin = resp.Body
+	uploadCmd.Stdout = &stdout
+	uploadCmd.Stderr = &stderr
+
+	fmt.Println("Starting upload...")
+	if err := uploadCmd.Run(); err != nil {
+		return "", fmt.Errorf("storacha up failed: %w\nstderr: %s", err, stderr.String())
+	}
+
+	fmt.Println("✓ Upload completed")
+
+	// Extract CID
 	output := stdout.String()
 	cid := extractCID(output)
 
