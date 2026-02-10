@@ -106,6 +106,39 @@ func S3Get(args []string) {
 	}
 }
 
+func S3Delete(args []string) {
+	fs := flag.NewFlagSet("s3-rm", flag.ExitOnError)
+	key := fs.String("key", "", "object key to delete (required)")
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *key == "" {
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	ac, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Confirm deletion
+	fmt.Printf("Are you sure you want to delete s3://%s/%s? (yes/no): ", ac.Bucket, *key)
+	var confirm string
+	fmt.Scanln(&confirm)
+	
+	if confirm != "yes" {
+		fmt.Println("Delete cancelled.")
+		return
+	}
+
+	ctx := context.Background()
+	if err := aws.DeleteObject(ctx, ac, *key); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func StorachaLogin() {
 	fmt.Println("== storacha-rclone Storacha login ==")
 	fmt.Println("You need: private key (base64), proof file path, and space DID")
@@ -180,3 +213,5 @@ func StorachaPut(args []string) {
 	fmt.Printf("CID: %s\n", cid)
 	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
 }
+
+
