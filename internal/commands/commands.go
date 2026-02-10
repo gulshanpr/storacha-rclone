@@ -161,7 +161,13 @@ func S3Delete(args []string) {
 		return
 	}
 
-	// Delete single key
+	// Delete single key - but check if it might be a prefix first
+	if *recursive {
+		// User specified -recursive with -key, they might mean -prefix
+		fmt.Printf("Warning: -recursive flag is ignored with -key. Did you mean -prefix?\n")
+		fmt.Printf("If '%s' is a folder, use: s3-rm -prefix \"%s\" -recursive\n\n", *key, *key)
+	}
+
 	if !*force {
 		fmt.Printf("Delete s3://%s/%s? (yes/no): ", ac.Bucket, *key)
 		var confirm string
