@@ -97,3 +97,22 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 	fmt.Printf("downloaded %d bytes → %s\n", n, dest)
 	return nil
 }
+
+func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error {
+	awscfg, err := ConfigFromLocal(ctx, ac)
+	if err != nil {
+		return fmt.Errorf("AWS config: %v", err)
+	}
+	client := s3.NewFromConfig(awscfg)
+
+	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: &ac.Bucket,
+		Key:    &key,
+	})
+	if err != nil {
+		return fmt.Errorf("DeleteObject: %v", err)
+	}
+
+	fmt.Printf("✓ Deleted: s3://%s/%s\n", ac.Bucket, key)
+	return nil
+}
