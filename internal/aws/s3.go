@@ -99,9 +99,6 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 	return nil
 }
 
-// internal/aws/s3.go
-
-// DeleteObject deletes a single object
 func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
@@ -109,6 +106,16 @@ func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error
 	}
 	client := s3.NewFromConfig(awscfg)
 
+	// First, check if the object exists
+	_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: &ac.Bucket,
+		Key:    &key,
+	})
+	if err != nil {
+		return fmt.Errorf("object not found: s3://%s/%s", ac.Bucket, key)
+	}
+
+	// Now delete it
 	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: &ac.Bucket,
 		Key:    &key,
@@ -121,7 +128,6 @@ func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error
 	return nil
 }
 
-// DeletePrefix deletes all objects with a given prefix (folder)
 func DeletePrefix(ctx context.Context, ac appconfig.AppConfig, prefix string) (int, error) {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
@@ -191,4 +197,3 @@ func DeletePrefix(ctx context.Context, ac appconfig.AppConfig, prefix string) (i
 
 	return deleted, nil
 }
-
