@@ -108,13 +108,23 @@ func S3Get(args []string) {
 
 func S3Delete(args []string) {
 	fs := flag.NewFlagSet("s3-rm", flag.ExitOnError)
-	key := fs.String("key", "", "object key to delete (required)")
+	key := fs.String("key", "", "object key to delete")
+	prefix := fs.String("prefix", "", "prefix to delete (folder)")
+	recursive := fs.Bool("recursive", false, "delete recursively (required for prefix)")
+	force := fs.Bool("force", false, "skip confirmation")
+	
 	if err := fs.Parse(args); err != nil {
 		log.Fatal(err)
 	}
 
-	if *key == "" {
+	if *key == "" && *prefix == "" {
+		fmt.Println("Error: must specify either -key or -prefix")
 		fs.Usage()
+		os.Exit(2)
+	}
+
+	if *key != "" && *prefix != "" {
+		fmt.Println("Error: cannot specify both -key and -prefix")
 		os.Exit(2)
 	}
 
@@ -123,17 +133,45 @@ func S3Delete(args []string) {
 		log.Fatal(err)
 	}
 
-	// Confirm deletion
-	fmt.Printf("Are you sure you want to delete s3://%s/%s? (yes/no): ", ac.Bucket, *key)
-	var confirm string
-	fmt.Scanln(&confirm)
-	
-	if confirm != "yes" {
-		fmt.Println("Delete cancelled.")
+	ctx := context.Background()
+
+	// Delete by prefix (folder)
+	if *prefix != "" {
+		if !*recursive {
+			fmt.Println("Error: -recursive flag required when deleting by prefix")
+			os.Exit(2)
+		}
+
+		if !*force {
+			fmt.Printf("This will delete ALL objects with prefix: s3://%s/%s\n", ac.Bucket, *prefix)
+			fmt.Print("Are you sure? (yes/no): ")
+			var confirm string
+			fmt.Scanln(&confirm)
+			if confirm != "yes" {
+				fmt.Println("Delete cancelled.")
+				return
+			}
+		}
+
+		count, err := aws.DeletePrefix(ctx, ac, *prefix)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("✓ Successfully deleted %d objects\n", count)
 		return
 	}
 
-	ctx := context.Background()
+	// Delete single key
+	if !*force {
+		fmt.Printf("Delete s3://%s/%s? (yes/no): ", ac.Bucket, *key)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "yes" {
+			fmt.Println("Delete cancelled.")
+			return
+		}
+	}
+
 	if err := aws.DeleteObject(ctx, ac, *key); err != nil {
 		log.Fatal(err)
 	}
