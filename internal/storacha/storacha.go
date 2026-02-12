@@ -2,19 +2,20 @@
 package storacha
 
 import (
-	// "bufio"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	// "io"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
-	// "syscall"
-	// "time"
+	"sync"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -103,7 +104,7 @@ func (c *Client) UploadFile(ctx context.Context, filePath string) (string, error
 	}
 
 	fmt.Println("Setting space...")
-	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.spaceDID)
+	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.pool.spaceDID)
 	useCmd.Stderr = os.Stderr
 	if err := useCmd.Run(); err != nil {
 		return "", fmt.Errorf("storacha space use: %w", err)
@@ -136,7 +137,7 @@ func (c *Client) UploadFile(ctx context.Context, filePath string) (string, error
 func (c *Client) UploadFromS3(ctx context.Context, awsCfg config.AppConfig, s3Key string) (string, error) {
 	// Set space
 	fmt.Println("Setting space...")
-	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.spaceDID)
+	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.pool.spaceDID)
 	useCmd.Stderr = os.Stderr
 	if err := useCmd.Run(); err != nil {
 		return "", fmt.Errorf("storacha space use: %w", err)
@@ -526,4 +527,16 @@ func getPackageDir() string {
 		return "."
 	}
 	return filepath.Dir(filename)
+}
+
+// Extract CID from output
+func extractCID(output string) string {
+	// Match CIDv1 (bafy...) or CIDv0 (Qm...)
+	re := regexp.MustCompile(`\b(bafy[a-zA-Z0-9]{50,}|Qm[a-zA-Z0-9]{44,})\b`)
+	for _, line := range strings.Split(output, "\n") {
+		if m := re.FindString(line); m != "" {
+			return m
+		}
+	}
+	return ""
 }
