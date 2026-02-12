@@ -181,3 +181,44 @@ func StorachaPut(args []string) {
 	fmt.Printf("CID: %s\n", cid)
 	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
 }
+
+func Copy(args []string) {
+	fs := flag.NewFlagSet("cp", flag.ExitOnError)
+	s3Key := fs.String("s3-key", "", "S3 object key to copy (required)")
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *s3Key == "" {
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	awsCfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	storachaCfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	storachaClient, err := storacha.NewClient(storachaCfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	fmt.Printf("Copying S3://%s/%s to Storacha...\n", awsCfg.Bucket, *s3Key)
+
+	cid, err := storachaClient.UploadFromS3(ctx, awsCfg, *s3Key)
+	if err != nil {
+		log.Fatalf("copy failed: %v", err)
+	}
+
+	fmt.Printf("Copy successful!\n")
+	fmt.Printf("CID: %s\n", cid)
+	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
+}
