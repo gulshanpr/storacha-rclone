@@ -258,4 +258,46 @@ func StorachaPut(args []string) {
 	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
 }
 
+func StorachaRemove(args []string) {
+	fs := flag.NewFlagSet("storacha-rm", flag.ExitOnError)
+	cid := fs.String("cid", "", "CID to remove from space (required)")
+	force := fs.Bool("force", false, "skip confirmation")
+	
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *cid == "" {
+		fmt.Println("Error: -cid is required")
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	cfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := storacha.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+
+	if !*force {
+		fmt.Printf("Remove CID %s from space %s? (yes/no): ", *cid, cfg.SpaceDID)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "yes" {
+			fmt.Println("Remove cancelled.")
+			return
+		}
+	}
+
+	ctx := context.Background()
+	if err := client.RemoveUpload(ctx, *cid); err != nil {
+		log.Fatalf("remove failed: %v", err)
+	}
+
+	fmt.Printf("✓ Removed CID %s from space\n", *cid)
+}
 
