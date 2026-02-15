@@ -111,3 +111,26 @@ func extractCID(output string) string {
 
 	return ""
 }
+
+func (c *Client) RemoveUpload(ctx context.Context, cid string) error {
+	// Set the space first
+	fmt.Println("Setting space...")
+	useCmd := exec.CommandContext(ctx, "storacha", "space", "use", c.spaceDID)
+	useCmd.Stderr = os.Stderr
+	if err := useCmd.Run(); err != nil {
+		return fmt.Errorf("storacha space use: %w", err)
+	}
+
+	// Remove the upload
+	fmt.Printf("Removing CID %s from space...\n", cid)
+	var stdout, stderr bytes.Buffer
+	rmCmd := exec.CommandContext(ctx, "storacha", "rm", cid)
+	rmCmd.Stdout = &stdout
+	rmCmd.Stderr = &stderr
+	
+	if err := rmCmd.Run(); err != nil {
+		return fmt.Errorf("storacha rm failed: %w\nstderr: %s", err, stderr.String())
+	}
+
+	return nil
+}
