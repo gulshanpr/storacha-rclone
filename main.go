@@ -16,7 +16,8 @@ func main() {
   storacha-rclone s3-rm -key k              # delete from S3
 
   storacha-rclone storacha-login            # save Storacha credentials
-  storacha-rclone storacha-put -file f      # upload file to Storacha`)
+  storacha-rclone storacha-put -file f      # upload file to Storacha
+  storacha-rclone storacha-rm -cid <CID>    # remove upload from Storacha space`)
 		os.Exit(2)
 	}
 
@@ -33,6 +34,8 @@ func main() {
 		commands.StorachaLogin()
 	case "storacha-put":
 		commands.StorachaPut(os.Args[2:])
+	case "storacha-rm":
+	commands.StorachaRemove(os.Args[2:])
 	default:
 		fmt.Println("unknown command:", os.Args[1])
 		os.Exit(2)
