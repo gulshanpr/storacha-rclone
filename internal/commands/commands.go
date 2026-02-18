@@ -12,6 +12,7 @@ import (
 
 	"github.com/gulshanpr/rclone/internal/aws"
 	"github.com/gulshanpr/rclone/internal/config"
+	"github.com/gulshanpr/rclone/internal/storacha"
 	"golang.org/x/term"
 )
 
@@ -68,7 +69,9 @@ func AWSLogin() {
 func S3List(args []string) {
 	fs := flag.NewFlagSet("s3-ls", flag.ExitOnError)
 	prefix := fs.String("prefix", "", "prefix to filter objects (optional)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
 	ac, err := config.Load()
 	if err != nil {
@@ -84,7 +87,9 @@ func S3Get(args []string) {
 	fs := flag.NewFlagSet("s3-get", flag.ExitOnError)
 	key := fs.String("key", "", "object key to download (required)")
 	outFile := fs.String("out", "", "local output filename (defaults to basename of key)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
 	if *key == "" {
 		fs.Usage()
@@ -100,3 +105,199 @@ func S3Get(args []string) {
 		log.Fatal(err)
 	}
 }
+
+func S3Delete(args []string) {
+	fs := flag.NewFlagSet("s3-rm", flag.ExitOnError)
+	key := fs.String("key", "", "object key to delete")
+	prefix := fs.String("prefix", "", "prefix to delete (folder)")
+	recursive := fs.Bool("recursive", false, "delete recursively (required for prefix)")
+	force := fs.Bool("force", false, "skip confirmation")
+	
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *key == "" && *prefix == "" {
+		fmt.Println("Error: must specify either -key or -prefix")
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	if *key != "" && *prefix != "" {
+		fmt.Println("Error: cannot specify both -key and -prefix")
+		os.Exit(2)
+	}
+
+	ac, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// Delete by prefix (folder)
+	if *prefix != "" {
+		if !*recursive {
+			fmt.Println("Error: -recursive flag required when deleting by prefix")
+			os.Exit(2)
+		}
+
+		if !*force {
+			fmt.Printf("This will delete ALL objects with prefix: s3://%s/%s\n", ac.Bucket, *prefix)
+			fmt.Print("Are you sure? (yes/no): ")
+			var confirm string
+			fmt.Scanln(&confirm)
+			if confirm != "yes" {
+				fmt.Println("Delete cancelled.")
+				return
+			}
+		}
+
+		count, err := aws.DeletePrefix(ctx, ac, *prefix)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("✓ Successfully deleted %d objects\n", count)
+		return
+	}
+
+	// Delete single key - but check if it might be a prefix first
+	if *recursive {
+		// User specified -recursive with -key, they might mean -prefix
+		fmt.Printf("Warning: -recursive flag is ignored with -key. Did you mean -prefix?\n")
+		fmt.Printf("If '%s' is a folder, use: s3-rm -prefix \"%s\" -recursive\n\n", *key, *key)
+	}
+
+	if !*force {
+		fmt.Printf("Delete s3://%s/%s? (yes/no): ", ac.Bucket, *key)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "yes" {
+			fmt.Println("Delete cancelled.")
+			return
+		}
+	}
+
+	if err := aws.DeleteObject(ctx, ac, *key); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func StorachaLogin() {
+	fmt.Println("== storacha-rclone Storacha login ==")
+	fmt.Println("You need: private key (base64), proof file path, and space DID")
+	fmt.Println("Generate these using: storacha key create & storacha delegation create")
+	fmt.Println()
+
+	privateKey, err := promptSecret("Private Key (base64, starts with Mg...): ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Show the DID for this private key
+	myDID, err := storacha.GetDIDFromPrivateKey(privateKey)
+	if err != nil {
+		log.Fatalf("invalid private key: %v", err)
+	}
+	fmt.Printf("\nYour DID: %s\n", myDID)
+	fmt.Println("Use this DID when creating the delegation:")
+	fmt.Printf("  storacha delegation create -c 'space/blob/add' -c 'space/index/add' -c 'upload/add' -c 'filecoin/offer' %s -o proof.ucan\n\n", myDID)
+
+	proofPath, err := prompt("Proof file path (e.g., ./proof.ucan): ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	spaceDID, err := prompt("Space DID (starts with did:key:...): ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cfg := config.StorachaConfig{
+		PrivateKey: privateKey,
+		ProofPath:  proofPath,
+		SpaceDID:   spaceDID,
+	}
+	if err := cfg.Save(); err != nil {
+		log.Fatalf("save storacha config: %v", err)
+	}
+	fmt.Println("Saved. (stored in ~/.storacha-rclone/storacha.json with 0600 perms)")
+}
+
+func StorachaPut(args []string) {
+	fs := flag.NewFlagSet("storacha-put", flag.ExitOnError)
+	filePath := fs.String("file", "", "local file path to upload (required)")
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *filePath == "" {
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	cfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := storacha.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+
+	ctx := context.Background()
+	fmt.Printf("Uploading %s to Storacha...\n", *filePath)
+
+	cid, err := client.UploadFile(ctx, *filePath)
+	if err != nil {
+		log.Fatalf("upload failed: %v", err)
+	}
+
+	fmt.Printf("Upload successful!\n")
+	fmt.Printf("CID: %s\n", cid)
+	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
+}
+
+func StorachaRemove(args []string) {
+	fs := flag.NewFlagSet("storacha-rm", flag.ExitOnError)
+	cid := fs.String("cid", "", "CID to remove from space (required)")
+	force := fs.Bool("force", false, "skip confirmation")
+	
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *cid == "" {
+		fmt.Println("Error: -cid is required")
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	cfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := storacha.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+
+	if !*force {
+		fmt.Printf("Remove CID %s from space %s? (yes/no): ", *cid, cfg.SpaceDID)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "yes" {
+			fmt.Println("Remove cancelled.")
+			return
+		}
+	}
+
+	ctx := context.Background()
+	if err := client.RemoveUpload(ctx, *cid); err != nil {
+		log.Fatalf("remove failed: %v", err)
+	}
+
+	fmt.Printf("✓ Removed CID %s from space\n", *cid)
+}
+
