@@ -106,6 +106,83 @@ func S3Get(args []string) {
 	}
 }
 
+func S3Delete(args []string) {
+	fs := flag.NewFlagSet("s3-rm", flag.ExitOnError)
+	key := fs.String("key", "", "object key to delete")
+	prefix := fs.String("prefix", "", "prefix to delete (folder)")
+	recursive := fs.Bool("recursive", false, "delete recursively (required for prefix)")
+	force := fs.Bool("force", false, "skip confirmation")
+	
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *key == "" && *prefix == "" {
+		fmt.Println("Error: must specify either -key or -prefix")
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	if *key != "" && *prefix != "" {
+		fmt.Println("Error: cannot specify both -key and -prefix")
+		os.Exit(2)
+	}
+
+	ac, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// Delete by prefix (folder)
+	if *prefix != "" {
+		if !*recursive {
+			fmt.Println("Error: -recursive flag required when deleting by prefix")
+			os.Exit(2)
+		}
+
+		if !*force {
+			fmt.Printf("This will delete ALL objects with prefix: s3://%s/%s\n", ac.Bucket, *prefix)
+			fmt.Print("Are you sure? (yes/no): ")
+			var confirm string
+			fmt.Scanln(&confirm)
+			if confirm != "yes" {
+				fmt.Println("Delete cancelled.")
+				return
+			}
+		}
+
+		count, err := aws.DeletePrefix(ctx, ac, *prefix)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("✓ Successfully deleted %d objects\n", count)
+		return
+	}
+
+	// Delete single key - but check if it might be a prefix first
+	if *recursive {
+		// User specified -recursive with -key, they might mean -prefix
+		fmt.Printf("Warning: -recursive flag is ignored with -key. Did you mean -prefix?\n")
+		fmt.Printf("If '%s' is a folder, use: s3-rm -prefix \"%s\" -recursive\n\n", *key, *key)
+	}
+
+	if !*force {
+		fmt.Printf("Delete s3://%s/%s? (yes/no): ", ac.Bucket, *key)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "yes" {
+			fmt.Println("Delete cancelled.")
+			return
+		}
+	}
+
+	if err := aws.DeleteObject(ctx, ac, *key); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func StorachaLogin() {
 	fmt.Println("== storacha-rclone Storacha login ==")
 	fmt.Println("You need: private key (base64), proof file path, and space DID")
