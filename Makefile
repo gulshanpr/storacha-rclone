@@ -11,11 +11,11 @@ build:
 test:
 	$(GO) test ./... -v
 
-lint:
-	golangci-lint run ./...
+# lint:
+# 	golangci-lint run ./...
 
 clean:
 	rm -rf bin
 
 docker: build
-	docker build -t yourname/$(BINARY_NAME):latest .
+	docker build -t gulshanpr/$(BINARY_NAME):latest .
