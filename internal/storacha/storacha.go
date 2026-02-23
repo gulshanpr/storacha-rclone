@@ -223,7 +223,26 @@ func (c *Client) DownloadToReader(ctx context.Context, cid string, fileName stri
 
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, 0, fmt.Errorf("gateway returned status: %s", resp.Status)
+		// fallback: try storacha.link gateway
+		fallbackURL := fmt.Sprintf("https://storacha.link/ipfs/%s", cid)
+		if fileName != "" {
+			fallbackURL = fmt.Sprintf("https://storacha.link/ipfs/%s/%s", cid, fileName)
+		}
+		fmt.Printf("w3s.link failed (%s), trying fallback: %s\n", resp.Status, fallbackURL)
+
+		req2, err := http.NewRequestWithContext(ctx, http.MethodGet, fallbackURL, nil)
+		if err != nil {
+			return nil, 0, fmt.Errorf("create fallback request: %w", err)
+		}
+		resp2, err := httpClient.Do(req2)
+		if err != nil {
+			return nil, 0, fmt.Errorf("fallback http get: %w", err)
+		}
+		if resp2.StatusCode != http.StatusOK {
+			resp2.Body.Close()
+			return nil, 0, fmt.Errorf("both gateways failed, last status: %s", resp2.Status)
+		}
+		return resp2.Body, resp2.ContentLength, nil
 	}
 
 	return resp.Body, resp.ContentLength, nil
