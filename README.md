@@ -39,3 +39,36 @@ Delete files or folders from S3
 - Use `-prefix` with `-recursive` for folders
 - The `-force` flag skips confirmation prompts
 - Prefix deletion uses batch operations (1000 objects per API call)
+
+## Copy between S3 and Storacha
+
+The `cp` command supports copying files in both directions between S3 and Storacha.
+
+### S3 → Storacha
+
+Copies an object from your configured S3 bucket directly to Storacha (streamed, no temp file).
+```bash
+./bin/rclone cp -s3-key "path/to/file.txt"
+```
+
+### Storacha → S3
+
+Copies a file from Storacha (via IPFS gateway) into your configured S3 bucket.
+```bash
+# Copy a file from a directory CID (most common — storacha wraps uploads in a dir)
+./bin/rclone cp \
+  -cid bafybeihjnbauyqkqq4xibszzm3jpjf4vhlgb2yddabqodnrmcbvdnihyau \
+  -file dog.txt \
+  -s3-key backups/dog.txt
+
+# -s3-key is optional — defaults to the value of -file
+./bin/rclone cp \
+  -cid bafybeihjnbauyqkqq4xibszzm3jpjf4vhlgb2yddabqodnrmcbvdnihyau \
+  -file dog.txt
+```
+
+**Notes:**
+- `-cid` is the CID printed by `storacha-put` (required)
+- `-file` is the original filename inside the uploaded directory (required for directory CIDs)
+- `-s3-key` is the destination key in S3 (defaults to `-file` value if omitted)
+- Content is buffered in memory before upload to satisfy S3's `Content-Length` requirement
