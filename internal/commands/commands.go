@@ -2,9 +2,11 @@ package commands
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -261,16 +263,36 @@ func StorachaPut(args []string) {
 
 func Copy(args []string) {
 	fs := flag.NewFlagSet("cp", flag.ExitOnError)
-	s3Key := fs.String("s3-key", "", "S3 object key to copy (required)")
+	s3Key := fs.String("s3-key", "", "S3 object key (source for s3→storacha, dest for storacha→s3)")
+	cid := fs.String("cid", "", "Storacha CID (source for storacha→s3)")
+	file := fs.String("file", "", "filename inside the CID directory (for storacha→s3)")
 	if err := fs.Parse(args); err != nil {
 		log.Fatal(err)
 	}
 
+	// storacha → s3: needs -cid and -s3-key
+	if *cid != "" {
+		if *s3Key == "" {
+			if *file != "" {
+				*s3Key = *file
+			} else {
+				*s3Key = *cid
+			}
+		}
+		copyStorachaToS3(args, *cid, *file, *s3Key)
+		return
+	}
+
+	// s3 → storacha: needs -s3-key
 	if *s3Key == "" {
+		fmt.Println("Error: must specify either -s3-key (for s3→storacha) or -cid (for storacha→s3)")
 		fs.Usage()
 		os.Exit(2)
 	}
+	copyS3ToStoracha(*s3Key)
+}
 
+func copyS3ToStoracha(s3Key string) {
 	awsCfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
@@ -288,9 +310,9 @@ func Copy(args []string) {
 
 	ctx := context.Background()
 
-	fmt.Printf("Copying S3://%s/%s to Storacha...\n", awsCfg.Bucket, *s3Key)
+	fmt.Printf("Copying S3://%s/%s to Storacha...\n", awsCfg.Bucket, s3Key)
 
-	cid, err := storachaClient.UploadFromS3(ctx, awsCfg, *s3Key)
+	cid, err := storachaClient.UploadFromS3(ctx, awsCfg, s3Key)
 	if err != nil {
 		log.Fatalf("copy failed: %v", err)
 	}
@@ -298,4 +320,47 @@ func Copy(args []string) {
 	fmt.Printf("Copy successful!\n")
 	fmt.Printf("CID: %s\n", cid)
 	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
+}
+
+func copyStorachaToS3(args []string, cid, file, s3Key string) {
+	storachaCfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	awsCfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	storachaClient, err := storacha.NewClient(storachaCfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+	defer storachaClient.Close()
+
+	ctx := context.Background()
+
+	fmt.Printf("Copying Storacha CID %s → s3://%s/%s\n", cid, awsCfg.Bucket, s3Key)
+
+	reader, _, err := storachaClient.DownloadToReader(ctx, cid, file)
+	if err != nil {
+		log.Fatalf("fetch from storacha: %v", err)
+	}
+	defer reader.Close()
+
+	fmt.Println("Buffering content...")
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		log.Fatalf("read from storacha: %v", err)
+	}
+
+	contentLength := int64(len(data))
+	fmt.Printf("Content length: %d bytes\n", contentLength)
+
+	if err := aws.UploadObject(ctx, awsCfg, s3Key, bytes.NewReader(data), contentLength); err != nil {
+		log.Fatalf("upload to S3: %v", err)
+	}
+
+	fmt.Printf("✓ Copy complete: Storacha/%s → s3://%s/%s\n", cid, awsCfg.Bucket, s3Key)
 }
