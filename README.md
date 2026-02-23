@@ -39,3 +39,20 @@ Delete files or folders from S3
 - Use `-prefix` with `-recursive` for folders
 - The `-force` flag skips confirmation prompts
 - Prefix deletion uses batch operations (1000 objects per API call)
+
+### Download from Storacha
+```bash
+# Download a file from a directory CID (most common — storacha wraps uploads in a dir)
+./bin/rclone storacha-get -cid  -file  -out 
+
+# Example
+./bin/rclone storacha-get \
+  -cid bafybeihjnbauyqkqq4xibszzm3jpjf4vhlgb2yddabqodnrmcbvdnihyau \
+  -file lol2.txt \
+  -out downloaded.txt
+```
+
+**Notes:**
+- `-cid` is the CID printed by `storacha-put` (required)
+- `-file` is the original filename inside the uploaded directory (required for directory CIDs)
+- `-out` is the local path to save to (defaults to the value of `-file`)
