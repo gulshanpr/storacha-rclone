@@ -17,7 +17,9 @@ func main() {
 
   storacha-rclone storacha-login            # save Storacha credentials
   storacha-rclone storacha-put -file f      # upload file to Storacha
-  storacha-rclone cp -s3-key k              # copy S3 object to Storacha`)
+  storacha-rclone cp -s3-key k              # copy S3 object to Storacha
+  storacha-rclone cp -cid <cid> [-file f] [-s3-key k]      # copy Storacha to S3
+`)
 		os.Exit(2)
 	}
 
