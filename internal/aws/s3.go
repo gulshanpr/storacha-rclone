@@ -99,6 +99,31 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 	return nil
 }
 
+func UploadObject(ctx context.Context, ac appconfig.AppConfig, key string, body io.Reader, contentLength int64) error {
+	awscfg, err := ConfigFromLocal(ctx, ac)
+	if err != nil {
+		return fmt.Errorf("AWS config: %v", err)
+	}
+	client := s3.NewFromConfig(awscfg)
+
+	input := &s3.PutObjectInput{
+		Bucket: &ac.Bucket,
+		Key:    &key,
+		Body:   body,
+	}
+	if contentLength > 0 {
+		input.ContentLength = &contentLength
+	}
+
+	_, err = client.PutObject(ctx, input)
+	if err != nil {
+		return fmt.Errorf("PutObject: %v", err)
+	}
+
+	fmt.Printf("✓ Uploaded to s3://%s/%s\n", ac.Bucket, key)
+	return nil
+}
+
 func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
