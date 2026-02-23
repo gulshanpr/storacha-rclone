@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"net/http"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -194,6 +195,38 @@ func (c *Client) UploadFromS3(ctx context.Context, awsCfg config.AppConfig, s3Ke
 	}
 
 	return cid, nil
+}
+
+func (c *Client) DownloadToReader(ctx context.Context, cid string, fileName string) (io.ReadCloser, int64, error) {
+	var url string
+	if fileName != "" {
+		url = fmt.Sprintf("https://%s.ipfs.w3s.link/%s", cid, fileName)
+	} else {
+		url = fmt.Sprintf("https://%s.ipfs.w3s.link", cid)
+	}
+
+	fmt.Printf("Fetching from: %s\n", url)
+
+	httpClient := &http.Client{
+		Timeout: 10 * time.Minute,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("http get: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, 0, fmt.Errorf("gateway returned status: %s", resp.Status)
+	}
+
+	return resp.Body, resp.ContentLength, nil
 }
 
 func (c *Client) Close() error {
