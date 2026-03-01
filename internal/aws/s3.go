@@ -26,7 +26,7 @@ func ConfigFromLocal(ctx context.Context, ac appconfig.AppConfig) (aws.Config, e
 func ListObjects(ctx context.Context, ac appconfig.AppConfig, prefix *string) error {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
-		return fmt.Errorf("AWS config: %v", err)
+		return fmt.Errorf("AWS config: %w", err)
 	}
 	client := s3.NewFromConfig(awscfg)
 
@@ -38,18 +38,15 @@ func ListObjects(ctx context.Context, ac appconfig.AppConfig, prefix *string) er
 			ContinuationToken: token,
 		})
 		if err != nil {
-			return fmt.Errorf("ListObjectsV2: %v", err)
+			return fmt.Errorf("ListObjectsV2: %w", err)
 		}
 		for _, obj := range out.Contents {
-			size := obj.Size
-			key := *obj.Key
-			fmt.Printf("%12d  %s\n", size, key)
+			fmt.Printf("%12d  %s\n", obj.Size, aws.ToString(obj.Key))
 		}
-		if *out.IsTruncated {
-			token = out.NextContinuationToken
-			continue
+		if out.IsTruncated == nil || !*out.IsTruncated {
+			break
 		}
-		break
+		token = out.NextContinuationToken
 	}
 	return nil
 }
