@@ -59,7 +59,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
-		return fmt.Errorf("AWS config: %v", err)
+		return fmt.Errorf("AWS config: %w", err)
 	}
 	client := s3.NewFromConfig(awscfg)
 
@@ -68,7 +68,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 		Key:    &key,
 	})
 	if err != nil {
-		return fmt.Errorf("GetObject: %v", err)
+		return fmt.Errorf("GetObject: %w", err)
 	}
 	defer func() {
 		closeErr := resp.Body.Close()
@@ -79,7 +79,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 
 	f, err := os.Create(dest)
 	if err != nil {
-		return fmt.Errorf("create %s: %v", dest, err)
+		return fmt.Errorf("create %s: %w", dest, err)
 	}
 	defer func() {
 		closeErr := f.Close()
@@ -90,7 +90,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 
 	n, err := io.Copy(f, resp.Body)
 	if err != nil {
-		return fmt.Errorf("write: %v", err)
+		return fmt.Errorf("write: %w", err)
 	}
 	fmt.Printf("downloaded %d bytes → %s\n", n, dest)
 	return nil
@@ -99,7 +99,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 func UploadObject(ctx context.Context, ac appconfig.AppConfig, key string, body io.Reader, contentLength int64) error {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
-		return fmt.Errorf("AWS config: %v", err)
+		return fmt.Errorf("AWS config: %w", err)
 	}
 	client := s3.NewFromConfig(awscfg)
 
@@ -114,7 +114,7 @@ func UploadObject(ctx context.Context, ac appconfig.AppConfig, key string, body 
 
 	_, err = client.PutObject(ctx, input)
 	if err != nil {
-		return fmt.Errorf("PutObject: %v", err)
+		return fmt.Errorf("PutObject: %w", err)
 	}
 
 	fmt.Printf("✓ Uploaded to s3://%s/%s\n", ac.Bucket, key)
@@ -124,7 +124,7 @@ func UploadObject(ctx context.Context, ac appconfig.AppConfig, key string, body 
 func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
-		return fmt.Errorf("AWS config: %v", err)
+		return fmt.Errorf("AWS config: %w", err)
 	}
 	client := s3.NewFromConfig(awscfg)
 
@@ -134,7 +134,7 @@ func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error
 		Key:    &key,
 	})
 	if err != nil {
-		return fmt.Errorf("object not found: s3://%s/%s", ac.Bucket, key)
+		return fmt.Errorf("object not found: s3://%s/%s: %w", ac.Bucket, key, err)
 	}
 
 	// Now delete it
@@ -143,7 +143,7 @@ func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error
 		Key:    &key,
 	})
 	if err != nil {
-		return fmt.Errorf("DeleteObject: %v", err)
+		return fmt.Errorf("DeleteObject: %w", err)
 	}
 
 	fmt.Printf("✓ Deleted: s3://%s/%s\n", ac.Bucket, key)
@@ -153,7 +153,7 @@ func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error
 func DeletePrefix(ctx context.Context, ac appconfig.AppConfig, prefix string) (int, error) {
 	awscfg, err := ConfigFromLocal(ctx, ac)
 	if err != nil {
-		return 0, fmt.Errorf("AWS config: %v", err)
+		return 0, fmt.Errorf("AWS config: %w", err)
 	}
 	client := s3.NewFromConfig(awscfg)
 
@@ -168,7 +168,7 @@ func DeletePrefix(ctx context.Context, ac appconfig.AppConfig, prefix string) (i
 			ContinuationToken: token,
 		})
 		if err != nil {
-			return 0, fmt.Errorf("ListObjectsV2: %v", err)
+			return 0, fmt.Errorf("ListObjectsV2: %w", err)
 		}
 		
 		for _, obj := range out.Contents {
@@ -210,7 +210,7 @@ func DeletePrefix(ctx context.Context, ac appconfig.AppConfig, prefix string) (i
 			},
 		})
 		if err != nil {
-			return deleted, fmt.Errorf("DeleteObjects batch: %v", err)
+			return deleted, fmt.Errorf("DeleteObjects batch: %w", err)
 		}
 		
 		deleted += len(batch)
