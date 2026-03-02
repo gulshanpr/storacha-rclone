@@ -53,8 +53,11 @@ func ListObjects(ctx context.Context, ac appconfig.AppConfig, prefix *string) er
 
 func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest string) (err error) {
 	if dest == "" {
-		parts := strings.Split(key, "/")
-		dest = parts[len(parts)-1]
+		if i := strings.LastIndex(key, "/"); i >= 0 {
+			dest = key[i+1:]
+		} else {
+			dest = key
+		}
 	}
 
 	awscfg, err := ConfigFromLocal(ctx, ac)
@@ -71,8 +74,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 		return fmt.Errorf("GetObject: %w", err)
 	}
 	defer func() {
-		closeErr := resp.Body.Close()
-		if err == nil {
+		if closeErr := resp.Body.Close(); err == nil {
 			err = closeErr
 		}
 	}()
@@ -82,8 +84,7 @@ func DownloadObject(ctx context.Context, ac appconfig.AppConfig, key, dest strin
 		return fmt.Errorf("create %s: %w", dest, err)
 	}
 	defer func() {
-		closeErr := f.Close()
-		if err == nil {
+		if closeErr := f.Close(); err == nil {
 			err = closeErr
 		}
 	}()
@@ -112,8 +113,7 @@ func UploadObject(ctx context.Context, ac appconfig.AppConfig, key string, body 
 		input.ContentLength = &contentLength
 	}
 
-	_, err = client.PutObject(ctx, input)
-	if err != nil {
+	if _, err = client.PutObject(ctx, input); err != nil {
 		return fmt.Errorf("PutObject: %w", err)
 	}
 
@@ -128,21 +128,17 @@ func DeleteObject(ctx context.Context, ac appconfig.AppConfig, key string) error
 	}
 	client := s3.NewFromConfig(awscfg)
 
-	// First, check if the object exists
-	_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
+	if _, err = client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: &ac.Bucket,
 		Key:    &key,
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("object not found: s3://%s/%s: %w", ac.Bucket, key, err)
 	}
 
-	// Now delete it
-	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	if _, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: &ac.Bucket,
 		Key:    &key,
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("DeleteObject: %w", err)
 	}
 
@@ -157,64 +153,51 @@ func DeletePrefix(ctx context.Context, ac appconfig.AppConfig, prefix string) (i
 	}
 	client := s3.NewFromConfig(awscfg)
 
-	// List all objects with prefix
-	var objectsToDelete []string
+	const batchSize = 1000
+	deleted := 0
 	var token *string
-	
+
 	for {
 		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 			Bucket:            &ac.Bucket,
 			Prefix:            &prefix,
 			ContinuationToken: token,
+			MaxKeys:           aws.Int32(batchSize),
 		})
 		if err != nil {
-			return 0, fmt.Errorf("ListObjectsV2: %w", err)
+			return deleted, fmt.Errorf("ListObjectsV2: %w", err)
 		}
-		
-		for _, obj := range out.Contents {
-			objectsToDelete = append(objectsToDelete, *obj.Key)
+
+		if len(out.Contents) == 0 {
+			break
 		}
-		
-		if !*out.IsTruncated {
+
+		ids := make([]types.ObjectIdentifier, len(out.Contents))
+		for i, obj := range out.Contents {
+			ids[i] = types.ObjectIdentifier{Key: obj.Key}
+		}
+
+		if _, err := client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: &ac.Bucket,
+			Delete: &types.Delete{
+				Objects: ids,
+				Quiet:   aws.Bool(true),
+			},
+		}); err != nil {
+			return deleted, fmt.Errorf("DeleteObjects batch: %w", err)
+		}
+
+		deleted += len(ids)
+		fmt.Printf("Deleted %d objects...\n", deleted)
+
+		if out.IsTruncated == nil || !*out.IsTruncated {
 			break
 		}
 		token = out.NextContinuationToken
 	}
 
-	if len(objectsToDelete) == 0 {
+	if deleted == 0 {
 		return 0, fmt.Errorf("no objects found with prefix: %s", prefix)
-	}
-
-	// Batch delete (max 1000 per request)
-	deleted := 0
-	for i := 0; i < len(objectsToDelete); i += 1000 {
-		end := i + 1000
-		if end > len(objectsToDelete) {
-			end = len(objectsToDelete)
-		}
-		
-		batch := objectsToDelete[i:end]
-		var objectIdentifiers []types.ObjectIdentifier
-		for _, key := range batch {
-			k := key
-			objectIdentifiers = append(objectIdentifiers, types.ObjectIdentifier{
-				Key: &k,
-			})
-		}
-		
-		_, err := client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-			Bucket: &ac.Bucket,
-			Delete: &types.Delete{
-				Objects: objectIdentifiers,
-				Quiet:   aws.Bool(false),
-			},
-		})
-		if err != nil {
-			return deleted, fmt.Errorf("DeleteObjects batch: %w", err)
-		}
-		
-		deleted += len(batch)
-		fmt.Printf("Deleted %d objects...\n", deleted)
 	}
 
 	return deleted, nil
