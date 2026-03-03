@@ -343,23 +343,27 @@ func copyStorachaToS3(args []string, cid, file, s3Key string) {
 
 	fmt.Printf("Copying Storacha CID %s → s3://%s/%s\n", cid, awsCfg.Bucket, s3Key)
 
-	reader, _, err := storachaClient.DownloadToReader(ctx, cid, file)
+	reader, contentLength, err := storachaClient.DownloadToReader(ctx, cid, file)
 	if err != nil {
 		log.Fatalf("fetch from storacha: %v", err)
 	}
 	defer reader.Close()
 
-	fmt.Println("Buffering content...")
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		log.Fatalf("read from storacha: %v", err)
-	}
-
-	contentLength := int64(len(data))
-	fmt.Printf("Content length: %d bytes\n", contentLength)
-
-	if err := aws.UploadObject(ctx, awsCfg, s3Key, bytes.NewReader(data), contentLength); err != nil {
-		log.Fatalf("upload to S3: %v", err)
+	if contentLength > 0 {
+		fmt.Printf("Streaming %d bytes to S3...\n", contentLength)
+		if err := aws.UploadObject(ctx, awsCfg, s3Key, reader, contentLength); err != nil {
+			log.Fatalf("upload to S3: %v", err)
+		}
+	} else {
+		fmt.Println("Content-Length unknown, buffering before upload...")
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			log.Fatalf("read from storacha: %v", err)
+		}
+		fmt.Printf("Buffered %d bytes\n", len(data))
+		if err := aws.UploadObject(ctx, awsCfg, s3Key, bytes.NewReader(data), int64(len(data))); err != nil {
+			log.Fatalf("upload to S3: %v", err)
+		}
 	}
 
 	fmt.Printf("✓ Copy complete: Storacha/%s → s3://%s/%s\n", cid, awsCfg.Bucket, s3Key)
