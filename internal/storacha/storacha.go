@@ -1,4 +1,3 @@
-// Storacha upload client using Node.js worker pool
 package storacha
 
 import (
@@ -8,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"net/http"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -283,20 +282,21 @@ func (p *WorkerPool) getWorker(ctx context.Context) (*Worker, error) {
 	}
 	p.mu.Unlock()
 
-	select {
-	case worker := <-p.available:
-		if !worker.isAlive() {
-			// Try to restart dead worker
-			if err := worker.restart(); err != nil {
-				// Return to pool and try to get another
-				p.available <- worker
-				return p.getWorker(ctx)
+	for attempts := 0; attempts < p.size; attempts++ {
+		select {
+		case worker := <-p.available:
+			if !worker.isAlive() {
+				if err := worker.restart(); err != nil {
+					p.available <- worker
+					continue
+				}
 			}
+			return worker, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		return worker, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
+	return nil, fmt.Errorf("all %d workers are dead and could not be restarted", p.size)
 }
 
 func (p *WorkerPool) putWorker(worker *Worker) {
@@ -581,11 +581,11 @@ func getPackageDir() string {
 	return filepath.Dir(filename)
 }
 
-// Extract CID from output
+var cidRe = regexp.MustCompile(`\b(bafy[a-zA-Z0-9]{50,}|bafk[a-zA-Z0-9]{50,}|Qm[a-zA-Z0-9]{44,})\b`)
+
 func extractCID(output string) string {
-	re := regexp.MustCompile(`\b(bafy[a-zA-Z0-9]{50,}|bafk[a-zA-Z0-9]{50,}|Qm[a-zA-Z0-9]{44,})\b`)
 	for _, line := range strings.Split(output, "\n") {
-		if m := re.FindString(line); m != "" {
+		if m := cidRe.FindString(line); m != "" {
 			return m
 		}
 	}
