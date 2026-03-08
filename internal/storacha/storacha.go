@@ -247,6 +247,38 @@ func (c *Client) DownloadToReader(ctx context.Context, cid string, fileName stri
 	return resp.Body, resp.ContentLength, nil
 }
 
+func (c *Client) DownloadFile(ctx context.Context, cid, fileName, outPath string) (err error) {
+	reader, _, err := c.DownloadToReader(ctx, cid, fileName)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	if outPath == "" {
+		outPath = fileName
+	}
+	if outPath == "" {
+		outPath = cid
+	}
+
+	f, err := os.Create(outPath)
+	if err != nil {
+		return fmt.Errorf("create output file: %w", err)
+	}
+	defer func() {
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+
+	if _, err = io.Copy(f, reader); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	fmt.Printf("Downloaded to %s\n", outPath)
+	return nil
+}
+
 func (c *Client) Close() error {
 	return c.pool.Close()
 }
