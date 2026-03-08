@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"net/http"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -194,6 +195,65 @@ func (c *Client) UploadFromS3(ctx context.Context, awsCfg config.AppConfig, s3Ke
 	}
 
 	return cid, nil
+}
+
+func (c *Client) DownloadFile(ctx context.Context, cid string, fileName string, destPath string) error {
+	if destPath == "" {
+		if fileName != "" {
+			destPath = fileName
+		} else {
+			destPath = cid
+		}
+	}
+
+	var url string
+	if fileName != "" {
+		// directory CID — subdomain style with filename path
+		url = fmt.Sprintf("https://%s.ipfs.w3s.link/%s", cid, fileName)
+	} else {
+		// raw file CID
+		url = fmt.Sprintf("https://%s.ipfs.w3s.link", cid)
+	}
+
+	fmt.Printf("Fetching from: %s\n", url)
+
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("gateway returned status: %s", resp.Status)
+	}
+
+	f, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("create file %s: %w", destPath, err)
+	}
+	defer func() {
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
+
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+
+	fmt.Printf("✓ Downloaded %d bytes → %s\n", n, destPath)
+	return nil
 }
 
 func (c *Client) Close() error {

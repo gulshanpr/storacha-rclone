@@ -259,6 +259,40 @@ func StorachaPut(args []string) {
 	fmt.Printf("View at: https://w3s.link/ipfs/%s\n", cid)
 }
 
+func StorachaGet(args []string) {
+	fs := flag.NewFlagSet("storacha-get", flag.ExitOnError)
+	cid := fs.String("cid", "", "CID to download (required)")
+	file := fs.String("file", "", "filename inside the CID directory (e.g. lol.txt)")
+	outPath := fs.String("out", "", "local output path (defaults to filename)")
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
+
+	if *cid == "" {
+		fmt.Println("Error: -cid is required")
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	cfg, err := config.LoadStoracha()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := storacha.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("create storacha client: %v", err)
+	}
+	defer client.Close()
+
+	ctx := context.Background()
+	fmt.Printf("Downloading from Storacha...\n")
+
+	if err := client.DownloadFile(ctx, *cid, *file, *outPath); err != nil {
+		log.Fatalf("download failed: %v", err)
+	}
+}
+
 func Copy(args []string) {
 	fs := flag.NewFlagSet("cp", flag.ExitOnError)
 	s3Key := fs.String("s3-key", "", "S3 object key to copy (required)")
